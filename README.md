@@ -44,14 +44,23 @@ cp .env.example .env
 
 ### 1. Get a Finviz Elite export URL
 
-Finviz's export column IDs aren't officially documented, so rather than
-constructing the request from scratch:
+Finviz's export *column* IDs aren't officially documented (the `&c=`
+param), so rather than reverse-engineering those, use the account's own
+Export API page (elite.finviz.com -> API -> Screener Export), which walks
+through it:
 
-1. In the Finviz Elite screener UI, set filters: **Relative Volume** "Over
-   1.5" (or 2), **Average Volume** "Over 300K".
-2. Click **Export**. Copy the resulting `export.ashx?...` URL — it already
-   carries your auth token, view, and filters.
-3. Paste it into `.env` as `FINVIZ_EXPORT_URL_DISCOVERY`.
+1. Build your screener with filters in the normal Screener UI: **Relative
+   Volume** "Over 1.5" (or 2), **Average Volume** "Over 300K".
+2. Take that screener URL and change the path from `/screener` to
+   `/export/screener` (same query string, filters and all).
+3. Get your personal API auth token from the Export API page and append it
+   as `&auth=<your-token>` to the URL.
+4. Paste the full result into `.env` as `FINVIZ_EXPORT_URL_DISCOVERY`.
+
+Treat that token like a password: it's tied to your Elite account and goes
+in `.env` only (gitignored, never committed). If it's ever pasted somewhere
+shared — a screenshot, a chat, a public repo — regenerate it from that same
+API page.
 
 Then run the header discovery helper once:
 
