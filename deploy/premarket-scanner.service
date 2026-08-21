@@ -1,0 +1,16 @@
+[Unit]
+Description=Premarket volume acceleration scanner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=scanner
+WorkingDirectory=/opt/premarket-scanner
+EnvironmentFile=/opt/premarket-scanner/.env
+ExecStart=/opt/premarket-scanner/.venv/bin/python -m premarket_scanner
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
