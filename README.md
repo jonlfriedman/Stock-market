@@ -2,8 +2,8 @@
 
 Polls Finviz Elite starting at 4:00 AM ET, tracks per-ticker volume/price in
 a rolling buffer, scores tickers on **sustained** volume acceleration (not
-just a static relative-volume threshold), and texts alerts via Twilio when
-the score crosses a threshold — all before the 7:00 AM trading window.
+just a static relative-volume threshold), and pushes alerts via Pushover
+when the score crosses a threshold — all before the 7:00 AM trading window.
 
 ## How it works
 
@@ -26,7 +26,7 @@ collected enough of its own history (RVOL_MIN_HISTORY_DAYS, default 10 days)
 Score = accel * 0.6 + rvol * 0.25 + |price % change| * 0.15
         |
         v
-Score >= threshold and cooldown elapsed --> Twilio SMS + logged to SQLite
+Score >= threshold and cooldown elapsed --> Pushover push + logged to SQLite
 Every scored row (alerted or not) --> data/logs/scores_YYYY-MM-DD.csv
 ```
 
@@ -73,11 +73,19 @@ Ticker/Price/Volume/Change/Rel Volume differ from the defaults (this is
 likely for premarket-specific columns), set the matching `FINVIZ_FIELD_*`
 var in `.env` to the exact header text shown.
 
-### 2. Twilio
+### 2. Pushover
 
-Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and
-`TWILIO_TO_NUMBERS` (comma-separated for multiple recipients) in `.env`.
-Leave `DRY_RUN=true` while testing — alerts are logged instead of sent.
+1. Install the Pushover app (iOS/Android) and create an account.
+2. On pushover.net, create an Application/API Token (any name, e.g.
+   "Premarket Scanner") — this gives you `PUSHOVER_API_TOKEN`.
+3. Your `PUSHOVER_USER_KEY` is shown on your account's main page after login.
+4. Set both in `.env`. Leave `DRY_RUN=true` while testing — alerts are
+   logged instead of sent.
+
+Pushover was chosen over SMS/Twilio for this project specifically because it
+needs no telco sender registration (Twilio SMS requires A2P 10DLC/toll-free
+verification, which is real friction to set up from a phone) — just the app
+plus a token and user key.
 
 ### 3. Run
 
@@ -95,7 +103,7 @@ Leave `DRY_RUN=true` while testing — alerts are logged instead of sent.
 .venv/bin/python -m pytest tests/ -v
 ```
 
-All tests run against synthetic data — no Finviz or Twilio credentials
+All tests run against synthetic data — no Finviz or Pushover credentials
 needed.
 
 ## Deployment (small droplet)

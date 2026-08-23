@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import finviz_client
-from .alerts import TwilioAlerter
+from .alerts import PushoverAlerter
 from .buffer import RollingBuffer
 from .config import Settings, load_settings
 from .rvol import RvolCalculator, time_bucket
@@ -55,7 +55,7 @@ def poll_once(
     storage: Storage,
     buffer: RollingBuffer,
     rvol_calc: RvolCalculator,
-    alerter: TwilioAlerter,
+    alerter: PushoverAlerter,
     now: datetime,
 ) -> None:
     snapshots = finviz_client.fetch_snapshot(settings.finviz_export_url, settings.field_map, now)
@@ -140,7 +140,7 @@ def run(settings: Settings, once: bool = False) -> None:
     storage = Storage(settings.data_dir)
     buffer = RollingBuffer(settings.buffer_window_minutes, settings.poll_interval_seconds)
     rvol_calc = RvolCalculator(storage, settings)
-    alerter = TwilioAlerter(settings, storage)
+    alerter = PushoverAlerter(settings, storage)
 
     try:
         while True:
