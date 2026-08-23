@@ -128,11 +128,20 @@ def poll_once(
                 snap.volume,
             )
             storage.record_alert(
-                snap.ticker, now, score, accel.score, rvol_result.value, price_change_pct, snap.volume
+                snap.ticker,
+                now,
+                score,
+                accel.score,
+                rvol_result.value,
+                price_change_pct,
+                snap.volume,
+                snap.price,
             )
             row["alerted"] = True
 
         storage.append_score_log(trade_date, row)
+
+    storage.backfill_alert_outcomes(now, settings.rvol_time_bucket_minutes)
 
 
 def run(settings: Settings, once: bool = False) -> None:

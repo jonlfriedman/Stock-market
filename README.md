@@ -160,6 +160,26 @@ not a validated number). After a week, pull `data/logs/scores_*.csv` and:
   static Relative Volume to its own time-of-day baseline (`rvol_source` column
   in the log shows which was used for each row).
 
+## Reviewing whether alerts actually worked
+
+Every alert records the price at the moment it fired. Afterward, the
+scanner automatically looks back and fills in what the price did 15, 30,
+and 60 minutes later (`Storage.backfill_alert_outcomes`, called once per
+poll cycle) -- so each alert ends up with its own before/after result, not
+just a point-in-time score.
+
+To review them:
+
+```bash
+.venv/bin/python scripts/review_alerts.py
+```
+
+This prints every alert with its score, acceleration/RVOL, and the price
+change at each horizon (blank = not enough time has passed yet to fill it
+in). This is the actual evidence for the Phase-1 "run a week, then
+reassess" review -- whether "sustained acceleration" alerts saw real
+follow-through, not just a one-time RVOL spike.
+
 ## Profiles
 
 - **Discovery** (default): wide net over Finviz's RVOL-filtered screener —
