@@ -19,7 +19,7 @@ Acceleration gate: 3 consecutive window ratios (W1->W2->W3->W4), only
         |
         v
 RVOL: current volume vs. same time-of-day average over the last 20 trading
-days. Falls back to Finviz's own "Rel Volume" column until the scanner has
+days. Falls back to Finviz's own "Relative Volume" column until the scanner has
 collected enough of its own history (RVOL_MIN_HISTORY_DAYS, default 10 days)
         |
         v
@@ -44,34 +44,53 @@ cp .env.example .env
 
 ### 1. Get a Finviz Elite export URL
 
-Finviz's export *column* IDs aren't officially documented (the `&c=`
-param), so rather than reverse-engineering those, use the account's own
-Export API page (elite.finviz.com -> API -> Screener Export), which walks
-through it:
+On elite.finviz.com, go to your account menu (top-right) -> **API** ->
+**Screener** tab. That page documents the whole flow and shows your live
+auth token:
 
-1. Build your screener with filters in the normal Screener UI: **Relative
-   Volume** "Over 1.5" (or 2), **Average Volume** "Over 300K".
-2. Take that screener URL and change the path from `/screener` to
-   `/export/screener` (same query string, filters and all).
-3. Get your personal API auth token from the Export API page and append it
-   as `&auth=<your-token>` to the URL.
-4. Paste the full result into `.env` as `FINVIZ_EXPORT_URL_DISCOVERY`.
+1. **Configure Screener** — build your filters in the normal Screener UI:
+   **Average Volume** "Over 300K" (`sh_avgvol_o300`), **Relative Volume**
+   "Over 1.5" (`sh_relvol_o1.5`). Use Average Volume, not Current Volume —
+   Current Volume is today's volume-so-far, which is near-zero for most
+   tickers early in the premarket session and would filter out exactly the
+   stocks this scanner is trying to catch.
+2. **Replace URL path**: change `/screener` to `/export/screener` (same
+   query string).
+3. **Customize columns** (optional but recommended): append
+   `&c=1,65,66,67,64,63` to pin the exact columns
+   (Ticker, Price, Change, Volume, Relative Volume, Average Volume) instead
+   of relying on whatever the screener view happens to show by default.
+4. **Add authentication**: append `&auth=<your-token>` — the token shown on
+   that same API page.
+
+Result looks like:
+
+```
+https://elite.finviz.com/export/screener?v=111&f=sh_avgvol_o300,sh_relvol_o1.5&c=1,65,66,67,64,63&auth=<your-token>
+```
+
+Paste it into `.env` as `FINVIZ_EXPORT_URL_DISCOVERY`.
 
 Treat that token like a password: it's tied to your Elite account and goes
 in `.env` only (gitignored, never committed). If it's ever pasted somewhere
 shared — a screenshot, a chat, a public repo — regenerate it from that same
-API page.
+API page ("Regenerate Token").
 
-Then run the header discovery helper once:
+Finviz's export API doesn't have separate premarket-specific columns (no
+"Pre-Market Price/Volume" fields exist in their documented column list) —
+the standard Price/Change/Volume columns already carry live premarket data
+during the scan window, so no extra column mapping is needed for that.
+
+As a final sanity check, run the header discovery helper once against your
+real URL:
 
 ```bash
 .venv/bin/python scripts/discover_finviz_columns.py
 ```
 
 This prints the actual CSV column headers your export produces. If any of
-Ticker/Price/Volume/Change/Rel Volume differ from the defaults (this is
-likely for premarket-specific columns), set the matching `FINVIZ_FIELD_*`
-var in `.env` to the exact header text shown.
+Ticker/Price/Volume/Change/Relative Volume differ from the defaults, set
+the matching `FINVIZ_FIELD_*` var in `.env` to the exact header text shown.
 
 ### 2. Pushover
 
@@ -138,7 +157,7 @@ not a validated number). After a week, pull `data/logs/scores_*.csv` and:
   "non-decreasing ratios" requirement (already accepts "all ratios > 1.0"
   as an alternate pass condition — see `scoring.compute_acceleration`).
 - `RVOL_MIN_HISTORY_DAYS` controls when the scanner switches from Finviz's
-  static Rel Volume to its own time-of-day baseline (`rvol_source` column
+  static Relative Volume to its own time-of-day baseline (`rvol_source` column
   in the log shows which was used for each row).
 
 ## Profiles

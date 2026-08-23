@@ -50,7 +50,7 @@ class FieldMap:
     price: str = "Price"
     volume: str = "Volume"
     change_pct: str = "Change"
-    rel_volume: str = "Rel Volume"
+    rel_volume: str = "Relative Volume"
 
 
 @dataclass

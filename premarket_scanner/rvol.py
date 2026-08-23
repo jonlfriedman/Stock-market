@@ -5,8 +5,8 @@ volume bucketed by minute -- data the scanner has no external source for.
 Instead, the scanner bootstraps its own baseline from what it collects each
 day (storage.volume_history): once a ticker has enough historical
 same-time-bucket samples, RVOL is computed from that. Until then, it falls
-back to Finviz's own "Rel Volume" column (a static day-level ratio) so the
-scanner is useful from day one, not just after the RVOL_MIN_HISTORY_DAYS
+back to Finviz's own "Relative Volume" column (a static day-level ratio) so
+the scanner is useful from day one, not just after the RVOL_MIN_HISTORY_DAYS
 warm-up period.
 """
 from __future__ import annotations
