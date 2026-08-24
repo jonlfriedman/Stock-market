@@ -56,17 +56,21 @@ auth token:
    stocks this scanner is trying to catch.
 2. **Replace URL path**: change `/screener` to `/export/screener` (same
    query string).
-3. **Customize columns** (optional but recommended): append
-   `&c=1,65,66,67,64,63` to pin the exact columns
-   (Ticker, Price, Change, Volume, Relative Volume, Average Volume) instead
-   of relying on whatever the screener view happens to show by default.
+3. **Customize columns**: append `&c=1,65,66,67,64,63` to pin the exact
+   columns (Ticker, Price, Change, Volume, Relative Volume, Average Volume).
+   This is *not* optional in practice: the default `v=111` ("Overview")
+   screener view ignores `&c=` entirely and always returns its own fixed
+   11-column layout (No./Ticker/Company/Sector/Industry/Country/Market
+   Cap/P-E/Price/Change/Volume) -- which has no Relative Volume or Average
+   Volume column at all, silently breaking RVOL scoring. Change `v=111` to
+   **`v=152`** in the URL for `&c=` to actually take effect.
 4. **Add authentication**: append `&auth=<your-token>` — the token shown on
    that same API page.
 
 Result looks like:
 
 ```
-https://elite.finviz.com/export/screener?v=111&f=sh_avgvol_o300,sh_relvol_o1.5&c=1,65,66,67,64,63&auth=<your-token>
+https://elite.finviz.com/export/screener?v=152&f=sh_avgvol_o300,sh_relvol_o1.5&c=1,65,66,67,64,63&auth=<your-token>
 ```
 
 Paste it into `.env` as `FINVIZ_EXPORT_URL_DISCOVERY`.
