@@ -49,6 +49,16 @@ def compute_acceleration(window_deltas: list[int]) -> AccelerationResult:
     return AccelerationResult(ratios=ratios, sustained=True, score=geo_mean)
 
 
+def capped_rvol(rvol: float, cap: float) -> float:
+    """RVOL is unbounded (illiquid microcaps can show 20x-40x+ on a single odd
+    baseline), but the score formula's 25% weight assumes a roughly modest
+    scale. Without a cap, one extreme RVOL reading alone can blow past the
+    alert threshold regardless of whether real acceleration is happening --
+    capping keeps RVOL a contributing factor, not a factor that can trigger
+    an alert single-handedly."""
+    return min(rvol, cap)
+
+
 def compute_score(
     acceleration_score: float,
     rvol: float,

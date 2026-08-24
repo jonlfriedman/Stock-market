@@ -76,6 +76,7 @@ class Settings:
     rvol_time_bucket_minutes: int = 5
     rvol_min_history_days: int = 10  # bootstrap threshold before trusting our own history
     rvol_lookback_days: int = 20
+    rvol_cap: float = 5.0  # cap RVOL's contribution to the score -- see scoring.capped_rvol
 
     # --- Scoring weights (spec: acceleration weighted highest) ---
     weight_acceleration: float = 0.6
@@ -137,6 +138,7 @@ def load_settings(env_path: str | Path | None = None) -> Settings:
         rvol_time_bucket_minutes=_int(env.get("RVOL_TIME_BUCKET_MINUTES"), 5),
         rvol_min_history_days=_int(env.get("RVOL_MIN_HISTORY_DAYS"), 10),
         rvol_lookback_days=_int(env.get("RVOL_LOOKBACK_DAYS"), 20),
+        rvol_cap=_float(env.get("RVOL_CAP"), 5.0),
         weight_acceleration=_float(env.get("WEIGHT_ACCELERATION"), 0.6),
         weight_rvol=_float(env.get("WEIGHT_RVOL"), 0.25),
         weight_price=_float(env.get("WEIGHT_PRICE"), 0.15),

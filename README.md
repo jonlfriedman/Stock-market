@@ -20,10 +20,14 @@ Acceleration gate: 3 consecutive window ratios (W1->W2->W3->W4), only
         v
 RVOL: current volume vs. same time-of-day average over the last 20 trading
 days. Falls back to Finviz's own "Relative Volume" column until the scanner has
-collected enough of its own history (RVOL_MIN_HISTORY_DAYS, default 10 days)
+collected enough of its own history (RVOL_MIN_HISTORY_DAYS, default 10 days).
+Capped at RVOL_CAP (default 5.0x) before scoring -- illiquid microcaps can
+show 20x-40x+ RVOL on one erratic baseline, and uncapped that alone would
+blow past the alert threshold regardless of real acceleration (raw RVOL is
+still logged uncapped in the CSV; only the score math uses the capped value)
         |
         v
-Score = accel * 0.6 + rvol * 0.25 + |price % change| * 0.15
+Score = accel * 0.6 + min(rvol, RVOL_CAP) * 0.25 + |price % change| * 0.15
         |
         v
 Score >= threshold and cooldown elapsed --> Pushover push + logged to SQLite

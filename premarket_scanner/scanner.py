@@ -19,7 +19,7 @@ from .alerts import PushoverAlerter
 from .buffer import RollingBuffer
 from .config import Settings, load_settings
 from .rvol import RvolCalculator, time_bucket
-from .scoring import compute_acceleration, compute_score
+from .scoring import capped_rvol, compute_acceleration, compute_score
 from .storage import Storage
 
 log = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ def poll_once(
 
         score = compute_score(
             accel.score,
-            rvol_result.value,
+            capped_rvol(rvol_result.value, settings.rvol_cap),
             abs(price_change_pct),
             settings.weight_acceleration,
             settings.weight_rvol,
