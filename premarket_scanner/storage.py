@@ -65,6 +65,23 @@ class Storage:
         self._conn = sqlite3.connect(self.db_path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        self._migrate_alerts_columns()
+
+    def _migrate_alerts_columns(self) -> None:
+        """CREATE TABLE IF NOT EXISTS does nothing for a table that already
+        exists under an older schema -- add any columns a pre-existing
+        alerts table (from before outcome tracking was added) is missing."""
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(alerts)").fetchall()}
+        migrations = {
+            "price_at_alert": "ALTER TABLE alerts ADD COLUMN price_at_alert REAL NOT NULL DEFAULT 0",
+            "outcome_15m": "ALTER TABLE alerts ADD COLUMN outcome_15m REAL",
+            "outcome_30m": "ALTER TABLE alerts ADD COLUMN outcome_30m REAL",
+            "outcome_60m": "ALTER TABLE alerts ADD COLUMN outcome_60m REAL",
+        }
+        for column, ddl in migrations.items():
+            if column not in existing:
+                self._conn.execute(ddl)
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
