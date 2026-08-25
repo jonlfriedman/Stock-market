@@ -19,7 +19,7 @@ from .alerts import PushoverAlerter
 from .buffer import RollingBuffer
 from .config import Settings, load_settings
 from .rvol import RvolCalculator, time_bucket
-from .scoring import capped_rvol, compute_acceleration, compute_score
+from .scoring import compute_acceleration, compute_score
 from .storage import Storage
 
 log = logging.getLogger(__name__)
@@ -102,16 +102,20 @@ def poll_once(
         row["rvol_source"] = rvol_result.source
         row["price_change_pct"] = round(price_change_pct, 4)
 
-        if not accel.sustained or rvol_result.value is None:
+        if not accel.sustained:
+            storage.append_score_log(trade_date, row)
+            continue
+
+        if price_change_pct < settings.min_price_change_pct:
+            # Downward-trending despite accelerating volume -- discard rather
+            # than score, per the "flat or up only" rule.
             storage.append_score_log(trade_date, row)
             continue
 
         score = compute_score(
             accel.score,
-            capped_rvol(rvol_result.value, settings.rvol_cap),
-            abs(price_change_pct),
+            price_change_pct,
             settings.weight_acceleration,
-            settings.weight_rvol,
             settings.weight_price,
         )
         row["score"] = round(score, 4)

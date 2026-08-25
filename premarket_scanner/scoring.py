@@ -1,10 +1,24 @@
-"""Acceleration + RVOL + price scoring.
+"""Acceleration + price-direction scoring.
 
-Score = (Acceleration x w_accel) + (RVOL x w_rvol) + (|Price% change| x w_price)
+Score = (Acceleration x w_accel) + (Price% change x w_price)
 
 Acceleration is a multi-window gate, not just a magnitude: a ticker only
 gets a nonzero acceleration score if volume growth is sustained across the
 window ratios, per the spec. A single spike does not pass.
+
+RVOL is deliberately not part of this formula. It was originally weighted
+in, but two problems showed up against live data: (1) Finviz's own RVOL
+snapshot isn't time-of-day adjusted, so it mechanically climbs through the
+morning regardless of real behavior, biasing alerts toward being too late
+to act on; (2) illiquid microcaps can show 20x-40x+ RVOL on one erratic
+baseline, which -- even capped -- was still adding noise unrelated to
+whether real acceleration was happening. RVOL is still computed and logged
+(and shown in the alert message) for context, just not scored on.
+
+price_change_pct here is signed, not absolute: a separate gate in
+scanner.py discards downward-trending tickers before they ever reach this
+function, so by the time a ticker is scored its price move is guaranteed
+flat-or-up.
 """
 from __future__ import annotations
 
@@ -49,26 +63,10 @@ def compute_acceleration(window_deltas: list[int]) -> AccelerationResult:
     return AccelerationResult(ratios=ratios, sustained=True, score=geo_mean)
 
 
-def capped_rvol(rvol: float, cap: float) -> float:
-    """RVOL is unbounded (illiquid microcaps can show 20x-40x+ on a single odd
-    baseline), but the score formula's 25% weight assumes a roughly modest
-    scale. Without a cap, one extreme RVOL reading alone can blow past the
-    alert threshold regardless of whether real acceleration is happening --
-    capping keeps RVOL a contributing factor, not a factor that can trigger
-    an alert single-handedly."""
-    return min(rvol, cap)
-
-
 def compute_score(
     acceleration_score: float,
-    rvol: float,
-    price_change_pct_abs: float,
+    price_change_pct: float,
     weight_acceleration: float,
-    weight_rvol: float,
     weight_price: float,
 ) -> float:
-    return (
-        acceleration_score * weight_acceleration
-        + rvol * weight_rvol
-        + price_change_pct_abs * weight_price
-    )
+    return acceleration_score * weight_acceleration + price_change_pct * weight_price
