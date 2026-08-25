@@ -1,8 +1,14 @@
-"""SMS alerting via Twilio, with a per-ticker cooldown to avoid spamming
-the same name every minute while it stays above threshold.
+"""SMS alerting via Twilio.
 
-If Twilio isn't configured (or dry_run is set), alerts are logged instead
-of sent -- useful for Phase-1 testing before credentials are wired up.
+Alert payload is deliberately minimal per the build spec: ticker and price
+at trigger time only, nothing else -- glanceable and actionable, not a data
+dump. Gated behind both `live_alerting_enabled` (the diagnostic-first
+rollout switch, see README) and `dry_run`; when either blocks sending, the
+alert is logged instead so Phase-1 diagnostics still show what *would*
+have fired.
+
+A per-ticker cooldown avoids re-texting the same name every time it
+reconfirms while a move is still running.
 """
 from __future__ import annotations
 
@@ -22,7 +28,8 @@ class TwilioAlerter:
         self._client = None
 
         self.enabled = bool(
-            not settings.dry_run
+            settings.live_alerting_enabled
+            and not settings.dry_run
             and settings.twilio_account_sid
             and settings.twilio_auth_token
             and settings.twilio_from_number
@@ -39,46 +46,18 @@ class TwilioAlerter:
             return True
         return now - last >= timedelta(minutes=self.settings.alert_cooldown_minutes)
 
-    def _format_message(
-        self,
-        ticker: str,
-        now: datetime,
-        score: float,
-        accel_ratios: list[float],
-        rvol: float,
-        rvol_source: str,
-        price_change_pct: float,
-        cumulative_volume: int,
-    ) -> str:
-        trading_hour, trading_minute = (int(x) for x in self.settings.trading_window_start.split(":"))
-        trading_start = now.replace(hour=trading_hour, minute=trading_minute, second=0, microsecond=0)
-        phase = "ACTIONABLE" if now >= trading_start else "awareness only, before trading window"
-        ratios_str = "/".join(f"{r:.2f}x" for r in accel_ratios)
-        return (
-            f"{ticker} score {score:.2f} [{phase}]\n"
-            f"accel ratios {ratios_str} | rvol {rvol:.2f}x ({rvol_source}) | "
-            f"price {price_change_pct:+.2f}% | vol {cumulative_volume:,}\n"
-            f"{now.strftime('%H:%M %Z')}"
-        )
+    @staticmethod
+    def _format_message(ticker: str, price: float) -> str:
+        return f"{ticker} ${price:.2f}"
 
-    def send(
-        self,
-        ticker: str,
-        now: datetime,
-        score: float,
-        accel_ratios: list[float],
-        rvol: float,
-        rvol_source: str,
-        price_change_pct: float,
-        cumulative_volume: int,
-    ) -> None:
-        message = self._format_message(
-            ticker, now, score, accel_ratios, rvol, rvol_source, price_change_pct, cumulative_volume
-        )
+    def send(self, ticker: str, price: float) -> bool:
+        """Returns True if an SMS was actually sent (not just logged)."""
+        message = self._format_message(ticker, price)
 
         if not self.enabled:
-            log.info("[DRY RUN, alert not sent] %s", message.replace("\n", " | "))
-            return
+            log.info("[not sent -- live_alerting_enabled=%s dry_run=%s] %s",
+                      self.settings.live_alerting_enabled, self.settings.dry_run, message)
+            return False
 
         for to_number in self.settings.twilio_to_numbers:
             self._client.messages.create(
@@ -87,3 +66,4 @@ class TwilioAlerter:
                 to=to_number,
             )
         log.info("Sent SMS alert for %s to %d recipient(s)", ticker, len(self.settings.twilio_to_numbers))
+        return True

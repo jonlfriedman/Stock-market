@@ -1,8 +1,11 @@
-"""Persistence: SQLite for RVOL history/alert cooldowns, CSV for Phase-1 analysis logs.
+"""Persistence: SQLite for confirmed triggers / effectiveness tracking /
+alert cooldowns, CSV for the per-minute diagnostic log.
 
-The SQLite volume_history table doubles as the scanner's own 20-trading-day
-time-of-day baseline: since it polls every minute from 4:00 AM every trading
-day anyway, it is collecting exactly the data needed for RVOL. See rvol.py.
+The CSV log (every poll, every ticker, not just confirmed triggers) is
+deliberate -- it's the raw data the diagnostic-first rollout is analyzed
+from: whether the 7:00 AM broker-unlock effect is market-wide, how big it
+is, and which tickers still stand out after accounting for it. See
+scripts/diagnostic_report.py.
 """
 from __future__ import annotations
 
@@ -12,40 +15,45 @@ from datetime import datetime
 from pathlib import Path
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS volume_history (
+CREATE TABLE IF NOT EXISTS confirmed_triggers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT NOT NULL,
-    trade_date TEXT NOT NULL,
-    time_bucket TEXT NOT NULL,
-    cumulative_volume INTEGER NOT NULL,
-    price REAL NOT NULL,
-    PRIMARY KEY (ticker, trade_date, time_bucket)
+    trigger_time TEXT NOT NULL,
+    trigger_price REAL NOT NULL,
+    baseline_avg_vol_per_min REAL NOT NULL,
+    minute_volume REAL NOT NULL,
+    alerted INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_volume_history_lookup
-    ON volume_history (ticker, time_bucket, trade_date);
+CREATE INDEX IF NOT EXISTS idx_confirmed_triggers_ticker_time
+    ON confirmed_triggers (ticker, trigger_time);
 
-CREATE TABLE IF NOT EXISTS alerts (
+CREATE TABLE IF NOT EXISTS effectiveness_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker TEXT NOT NULL,
-    alert_time TEXT NOT NULL,
-    score REAL NOT NULL,
-    acceleration REAL NOT NULL,
-    rvol REAL NOT NULL,
-    price_change_pct REAL NOT NULL,
-    cumulative_volume INTEGER NOT NULL
+    trigger_time TEXT NOT NULL,
+    trigger_price REAL NOT NULL,
+    offset_minutes INTEGER NOT NULL,
+    due_time TEXT NOT NULL,
+    snapshot_time TEXT,
+    price REAL,
+    pct_change_from_trigger REAL,
+    recorded INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_alerts_ticker_time ON alerts (ticker, alert_time);
+CREATE INDEX IF NOT EXISTS idx_effectiveness_due
+    ON effectiveness_snapshots (recorded, due_time);
 """
 
-SCORE_LOG_HEADER = [
+SCAN_LOG_HEADER = [
     "timestamp",
+    "phase",
     "ticker",
     "price",
     "cumulative_volume",
-    "acceleration_score",
-    "sustained",
-    "rvol",
-    "rvol_source",
-    "price_change_pct",
-    "score",
+    "minute_volume",
+    "baseline_avg_vol_per_min",
+    "ratio_to_baseline",
+    "trigger1_fired",
+    "trigger2_confirmed",
     "alerted",
 ]
 
@@ -63,32 +71,11 @@ class Storage:
     def close(self) -> None:
         self._conn.close()
 
-    # --- RVOL history ---
-    def record_volume_snapshot(
-        self, ticker: str, trade_date: str, time_bucket: str, cumulative_volume: int, price: float
-    ) -> None:
-        self._conn.execute(
-            "INSERT OR REPLACE INTO volume_history "
-            "(ticker, trade_date, time_bucket, cumulative_volume, price) VALUES (?, ?, ?, ?, ?)",
-            (ticker, trade_date, time_bucket, cumulative_volume, price),
-        )
-        self._conn.commit()
-
-    def historical_bucket_volumes(
-        self, ticker: str, time_bucket: str, lookback_days: int, exclude_date: str
-    ) -> list[int]:
-        cur = self._conn.execute(
-            "SELECT cumulative_volume FROM volume_history "
-            "WHERE ticker = ? AND time_bucket = ? AND trade_date != ? "
-            "ORDER BY trade_date DESC LIMIT ?",
-            (ticker, time_bucket, exclude_date, lookback_days),
-        )
-        return [row[0] for row in cur.fetchall()]
-
-    # --- Alerts / cooldown ---
+    # --- Confirmed triggers / cooldown ---
     def last_alert_time(self, ticker: str) -> datetime | None:
         cur = self._conn.execute(
-            "SELECT alert_time FROM alerts WHERE ticker = ? ORDER BY alert_time DESC LIMIT 1",
+            "SELECT trigger_time FROM confirmed_triggers WHERE ticker = ? "
+            "ORDER BY trigger_time DESC LIMIT 1",
             (ticker,),
         )
         row = cur.fetchone()
@@ -96,30 +83,72 @@ class Storage:
             return None
         return datetime.fromisoformat(row[0])
 
-    def record_alert(
+    def record_confirmed_trigger(
         self,
         ticker: str,
-        alert_time: datetime,
-        score: float,
-        acceleration: float,
-        rvol: float,
-        price_change_pct: float,
-        cumulative_volume: int,
+        trigger_time: datetime,
+        trigger_price: float,
+        baseline_avg_vol_per_min: float,
+        minute_volume: float,
+        alerted: bool,
+    ) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO confirmed_triggers "
+            "(ticker, trigger_time, trigger_price, baseline_avg_vol_per_min, minute_volume, alerted) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                ticker,
+                trigger_time.isoformat(),
+                trigger_price,
+                baseline_avg_vol_per_min,
+                minute_volume,
+                int(alerted),
+            ),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    # --- Effectiveness tracking ---
+    def add_effectiveness_pending(
+        self,
+        ticker: str,
+        trigger_time: datetime,
+        trigger_price: float,
+        offset_minutes: int,
+        due_time: datetime,
     ) -> None:
         self._conn.execute(
-            "INSERT INTO alerts "
-            "(ticker, alert_time, score, acceleration, rvol, price_change_pct, cumulative_volume) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (ticker, alert_time.isoformat(), score, acceleration, rvol, price_change_pct, cumulative_volume),
+            "INSERT INTO effectiveness_snapshots "
+            "(ticker, trigger_time, trigger_price, offset_minutes, due_time) VALUES (?, ?, ?, ?, ?)",
+            (ticker, trigger_time.isoformat(), trigger_price, offset_minutes, due_time.isoformat()),
         )
         self._conn.commit()
 
-    # --- Phase-1 analysis log (plain CSV, one file per day) ---
-    def append_score_log(self, trade_date: str, row: dict) -> None:
-        path = self.data_dir / "logs" / f"scores_{trade_date}.csv"
+    def due_effectiveness_snapshots(self, now: datetime) -> list[dict]:
+        cur = self._conn.execute(
+            "SELECT id, ticker, trigger_time, trigger_price, offset_minutes, due_time "
+            "FROM effectiveness_snapshots WHERE recorded = 0 AND due_time <= ?",
+            (now.isoformat(),),
+        )
+        cols = ["id", "ticker", "trigger_time", "trigger_price", "offset_minutes", "due_time"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def record_effectiveness_snapshot(
+        self, snapshot_id: int, snapshot_time: datetime, price: float, pct_change_from_trigger: float
+    ) -> None:
+        self._conn.execute(
+            "UPDATE effectiveness_snapshots SET recorded = 1, snapshot_time = ?, price = ?, "
+            "pct_change_from_trigger = ? WHERE id = ?",
+            (snapshot_time.isoformat(), price, pct_change_from_trigger, snapshot_id),
+        )
+        self._conn.commit()
+
+    # --- Diagnostic log (plain CSV, one file per day) ---
+    def append_scan_log(self, trade_date: str, row: dict) -> None:
+        path = self.data_dir / "logs" / f"scan_{trade_date}.csv"
         is_new = not path.exists()
         with path.open("a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=SCORE_LOG_HEADER)
+            writer = csv.DictWriter(f, fieldnames=SCAN_LOG_HEADER)
             if is_new:
                 writer.writeheader()
             writer.writerow(row)

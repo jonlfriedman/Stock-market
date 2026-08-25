@@ -1,38 +1,45 @@
 # Premarket Volume Acceleration Scanner
 
-Polls Finviz Elite starting at 4:00 AM ET, tracks per-ticker volume/price in
-a rolling buffer, scores tickers on **sustained** volume acceleration (not
-just a static relative-volume threshold), and texts alerts via Twilio when
-the score crosses a threshold — all before the 7:00 AM trading window.
+Detects stocks whose premarket volume breaks out and *keeps building*
+right around the 7:00 AM broker-unlock time, distinguishing real
+ticker-specific moves from the market-wide volume step-up that happens
+when retail platforms open trading access. Runs a strict two-phase
+baseline/breakout/confirmation check every minute and texts a minimal SMS
+via Twilio when a move confirms.
 
 ## How it works
 
 ```
-Finviz Elite export (CSV, every 60s)
+Universe screen (Finviz Elite, once before BASELINE_START_TIME)
         |
         v
-RollingBuffer  --- last ~15 min of (timestamp, cumulative_volume, price) per ticker
+Fixed ticker list for the session, cached to disk
         |
         v
-Acceleration gate: 3 consecutive window ratios (W1->W2->W3->W4), only
-"sustained" if ratios are non-decreasing or all > 1.0 (rejects single spikes)
+Phase 1 -- baseline window (06:45-07:00): poll every 1 min,
+compute avg_vol_per_min per ticker over the window
         |
         v
-RVOL: current volume vs. same time-of-day average over the last 20 trading
-days. Falls back to Finviz's own "Rel Volume" column until the scanner has
-collected enough of its own history (RVOL_MIN_HISTORY_DAYS, default 10 days)
+Phase 2 -- trigger window (07:00 onward): poll every 1 min
+  Trigger 1 (breakout): this minute's volume > avg_vol_per_min x multiplier
+  Trigger 2 (confirmation): next 3 minutes stay elevated OR keep increasing
         |
         v
-Score = accel * 0.6 + rvol * 0.25 + |price % change| * 0.15
+Confirmed --> Twilio SMS (ticker + price only) + logged to SQLite
+Every poll (confirmed or not) --> data/logs/scan_YYYY-MM-DD.csv
         |
         v
-Score >= threshold and cooldown elapsed --> Twilio SMS + logged to SQLite
-Every scored row (alerted or not) --> data/logs/scores_YYYY-MM-DD.csv
+Effectiveness tracking: price snapshots every 15 min after each
+confirmed trigger, until 10:00 AM -- separate from alerting, for
+retrospective "did this actually predict anything" analysis
 ```
 
-The CSV log of every poll (not just alerts) is deliberate: Phase 1 is meant
-to over-alert and gather data, then tighten `SCORE_THRESHOLD` and friends
-using what actually happened, per the build spec.
+RVOL (relative volume) is deliberately **not** used anywhere in the
+trigger logic -- it's a lagging ratio against a historical average, not a
+live rate-of-change signal, and updates too late to catch the "still
+building" moment this system targets. Finviz's own RVOL/unusual-volume
+screener already does a static-threshold version of this; it's not the
+differentiator here.
 
 ## Setup
 
@@ -42,42 +49,44 @@ python3 -m venv .venv
 cp .env.example .env
 ```
 
-### 1. Get a Finviz Elite export URL
+### 1. Finviz Elite
 
-Finviz's export *column* IDs aren't officially documented (the `&c=`
-param), so rather than reverse-engineering those, use the account's own
-Export API page (elite.finviz.com -> API -> Screener Export), which walks
-through it:
+Get your personal Export API auth token from elite.finviz.com -> API ->
+Screener Export, and set it as `FINVIZ_API_KEY` in `.env`. Treat it like a
+password: `.env` is gitignored and the token must never be pasted into
+chat, committed, or shared. The scanner builds two different URLs from
+that key (see `premarket_scanner/finviz_client.py`):
 
-1. Build your screener with filters in the normal Screener UI: **Relative
-   Volume** "Over 1.5" (or 2), **Average Volume** "Over 300K".
-2. Take that screener URL and change the path from `/screener` to
-   `/export/screener` (same query string, filters and all).
-3. Get your personal API auth token from the Export API page and append it
-   as `&auth=<your-token>` to the URL.
-4. Paste the full result into `.env` as `FINVIZ_EXPORT_URL_DISCOVERY`.
+1. **Universe screen** (`build_universe_url`) -- run once each morning
+   before `BASELINE_START_TIME`, using `FINVIZ_UNIVERSE_FILTER` (default
+   is the confirmed working filter from the build spec: PFCF under 20,
+   common stocks only -- excludes SPACs/ETFs/funds, average volume over
+   300K, price $1-$10). This defines the fixed ticker list for the whole
+   session; it's cached to `data/universe/` so a restart mid-morning
+   doesn't redraw a different list partway through.
+2. **Live volume polling** (`build_quote_url`) -- every minute from
+   `BASELINE_START_TIME` through `SCAN_END_TIME`, against exactly that
+   fixed ticker list (`t=...`), no filters. This is what the baseline and
+   triggers are computed from.
 
-Treat that token like a password: it's tied to your Elite account and goes
-in `.env` only (gitignored, never committed). If it's ever pasted somewhere
-shared — a screenshot, a chat, a public repo — regenerate it from that same
-API page.
-
-Then run the header discovery helper once:
+Column IDs for Finviz's export API aren't officially documented. Run the
+header discovery helper once to confirm the actual CSV headers match the
+defaults in `config.FieldMap`:
 
 ```bash
 .venv/bin/python scripts/discover_finviz_columns.py
 ```
 
-This prints the actual CSV column headers your export produces. If any of
-Ticker/Price/Volume/Change/Rel Volume differ from the defaults (this is
-likely for premarket-specific columns), set the matching `FINVIZ_FIELD_*`
-var in `.env` to the exact header text shown.
+If any of Ticker/Price/Volume/Change differ, set the matching
+`FINVIZ_FIELD_*` var in `.env`.
 
 ### 2. Twilio
 
 Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and
 `TWILIO_TO_NUMBERS` (comma-separated for multiple recipients) in `.env`.
-Leave `DRY_RUN=true` while testing — alerts are logged instead of sent.
+Leave `LIVE_ALERTING_ENABLED=false` until the diagnostic week is done --
+see below. This is separate from `DRY_RUN`, which is just a manual
+override for one-off test runs.
 
 ### 3. Run
 
@@ -95,7 +104,7 @@ Leave `DRY_RUN=true` while testing — alerts are logged instead of sent.
 .venv/bin/python -m pytest tests/ -v
 ```
 
-All tests run against synthetic data — no Finviz or Twilio credentials
+All tests run against synthetic data -- no Finviz or Twilio credentials
 needed.
 
 ## Deployment (small droplet)
@@ -115,42 +124,88 @@ systemctl enable --now premarket-scanner
 journalctl -u premarket-scanner -f
 ```
 
-The service only actively polls within `SCAN_START_TIME`–`SCAN_END_TIME`
+The service only actively polls within `UNIVERSE_FETCH_TIME`-`SCAN_END_TIME`
 (weekdays); outside that window it sleeps until the next window, so it's
 safe to leave running continuously.
 
-## Tuning (Phase 1 -> Phase 2)
+## Diagnostic-first rollout (required before live alerting)
 
-Start loose (`SCORE_THRESHOLD=3.0` in `.env.example` is a starting point,
-not a validated number). After a week, pull `data/logs/scores_*.csv` and:
+`LIVE_ALERTING_ENABLED` defaults to `false`. Run the full pipeline in this
+log-only mode for approximately one week before turning it on. Every poll
+(every ticker, every minute) is logged to `data/logs/scan_YYYY-MM-DD.csv`
+regardless of whether it crosses a trigger, specifically so this week can
+answer:
 
-- Check what score range actual movers hit vs. noise, and raise
-  `SCORE_THRESHOLD` accordingly.
-- If real moves are getting missed by the acceleration gate, loosen the
-  "non-decreasing ratios" requirement (already accepts "all ratios > 1.0"
-  as an alternate pass condition — see `scoring.compute_acceleration`).
-- `RVOL_MIN_HISTORY_DAYS` controls when the scanner switches from Finviz's
-  static Rel Volume to its own time-of-day baseline (`rvol_source` column
-  in the log shows which was used for each row).
+1. Does most/all of the universe see a volume jump right at 7:00 AM (the
+   market-wide broker-unlock effect), or only some tickers?
+2. If a market-wide effect exists, roughly how large is it on average?
+   This becomes a normalization factor for judging individual tickers.
+3. Which tickers still stand out after accounting for that effect --
+   these inform real `TRIGGER_MULTIPLIER` tuning.
+
+```bash
+.venv/bin/python scripts/diagnostic_report.py
+```
+
+reports the cross-sectional median/mean `ratio_to_baseline` in the first
+few minutes of the trigger window (a rough measure of the market-wide
+step-up) and flags tickers whose ratio is well above that median (real
+candidates). Only after this analysis should `TRIGGER_MULTIPLIER` be
+tuned and `LIVE_ALERTING_ENABLED` flipped to `true`.
+
+## Alert payload
+
+Kept deliberately minimal per the build spec: `TICKER $PRICE`, nothing
+else -- no scores, ratios, or extra metrics. Price % change is used only
+as a secondary confirmation signal internally (visible in the CSV log),
+never in the SMS text.
+
+## Effectiveness tracking
+
+Independent of what the SMS contains: for every confirmed trigger, price
+is snapshotted every `EFFECTIVENESS_SNAPSHOT_MINUTES` (default 15) after
+the trigger, continuing until `SCAN_END_TIME` (default 10:00 AM --
+deliberately past the 9:30 AM open, since some moves only materialize
+once regular-hours volume kicks in). Stored in the `effectiveness_snapshots`
+SQLite table for retrospective analysis (e.g. "average % price move
+15/30/45/60+ min after a trigger"), separate from any single trade
+decision.
+
+## Tuning
+
+- `TRIGGER_MULTIPLIER`: starting point only (3.0x baseline avg
+  volume/min). Set from the diagnostic week's `diagnostic_report.py`
+  output.
+- `CONFIRMATION_MINUTES`: how many minutes Trigger 2 watches after a
+  breakout. Confirmation passes if volume stays at/above the breakout
+  level for the whole window, OR keeps (non-strictly) increasing across
+  it -- either is enough; both together aren't required.
+- `ALERT_COOLDOWN_MINUTES`: minimum gap between SMS for the same ticker
+  while a move keeps reconfirming.
 
 ## Profiles
 
-- **Discovery** (default): wide net over Finviz's RVOL-filtered screener —
-  unfamiliar/small-cap names included. Configured via
-  `FINVIZ_EXPORT_URL_DISCOVERY`.
-- **Watchlist**: intended for your existing large-cap holdings with tighter
-  liquidity requirements. Wired into config (`FINVIZ_EXPORT_URL_WATCHLIST`,
-  `--profile watchlist`) but not yet populated with a real export URL — add
-  one once the Discovery profile has been validated, per the build spec.
-  Run a second instance of the service (separate systemd unit + `.env`, or
-  `SCANNER_PROFILE=watchlist` and a distinct `DATA_DIR`) to run both at once.
+- **Discovery** (default): the Finviz universe screen -- unfamiliar/
+  small-cap names included, wider net. Configured via
+  `FINVIZ_UNIVERSE_FILTER`.
+- **Watchlist** (future refinement, not part of the initial build): your
+  existing large-cap holdings. Set `SCANNER_PROFILE=watchlist` and
+  `FINVIZ_WATCHLIST_TICKERS` to bypass the screener with an explicit
+  ticker list. Add only after the Discovery profile's diagnostic rollout
+  confirms the core trigger logic works. Run a second instance (separate
+  systemd unit + `.env`, distinct `DATA_DIR`) to run both profiles at
+  once.
 
 ## Known limitations (by design, not bugs)
 
 - Premarket liquidity is thin; a volume spike can be a couple of orders,
-  not real depth. Verify manually before acting on any alert.
-- RVOL is Finviz's static ratio until the scanner has ~10+ trading days of
-  its own history — early alerts are less precise on that dimension.
-- This is a screening/alerting tool, not a trading system: no entry/exit
-  rules, position sizing, or buy/sell logic are included or in scope.
-  Validate via paper trading before using with live capital.
+  not real depth. Wide bid-ask spreads are a real execution risk on
+  unfamiliar names -- verify manually before acting on any alert.
+- Premarket data coverage for obscure microcaps may be incomplete even on
+  Finviz Elite; watch for tickers with sparse or missing readings in the
+  scan log.
+- This is a screening/alerting edge, not a guaranteed early-mover
+  advantage -- institutional/HFT systems already operate on this signal
+  at much higher speed. No entry/exit rules, position sizing, or buy/sell
+  logic are included or in scope. Validate via paper trading before using
+  with live capital.
