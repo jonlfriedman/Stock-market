@@ -42,10 +42,8 @@ def test_zero_baseline_window_not_sustained():
 def test_compute_score_weights():
     score = compute_score(
         acceleration_score=2.0,
-        rvol=3.0,
-        price_change_pct_abs=5.0,
-        weight_acceleration=0.6,
-        weight_rvol=0.25,
-        weight_price=0.15,
+        price_change_pct=5.0,
+        weight_acceleration=0.8,
+        weight_price=0.2,
     )
-    assert score == 2.0 * 0.6 + 3.0 * 0.25 + 5.0 * 0.15
+    assert score == 2.0 * 0.8 + 5.0 * 0.2

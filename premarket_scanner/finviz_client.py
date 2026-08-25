@@ -1,16 +1,14 @@
 """Finviz Elite screener export client.
 
-Finviz Elite's CSV export column IDs (the `&c=` param) aren't officially
-documented, so instead of constructing the request from numeric column
-codes, the recommended setup (see README) is: build the screener in the
-Finviz Elite UI (Relative Volume filter + Average Volume floor filter),
-swap the URL path from /screener to /export/screener, and append your
-personal token from the Export API page as &auth=<token>. That full URL
-(carrying the view, filters, and auth) goes in FINVIZ_EXPORT_URL_DISCOVERY.
+Finviz Elite's API page (elite.finviz.com -> account menu -> API ->
+Screener) documents the export flow directly, including numeric column IDs
+for the `&c=` param -- see README for the full URL recipe (filters, pinned
+columns, auth token). That full URL goes in FINVIZ_EXPORT_URL_DISCOVERY.
 Legacy /export.ashx URLs still work too (301 redirect, followed by
-requests). This module then parses whatever CSV that URL returns by its
-header row text -- see config.FieldMap and
-scripts/discover_finviz_columns.py for mapping headers once.
+requests). This module parses whatever CSV that URL returns by its header
+row text rather than hardcoding column order -- see config.FieldMap and
+scripts/discover_finviz_columns.py for a one-time sanity check that the
+real header text matches.
 """
 from __future__ import annotations
 

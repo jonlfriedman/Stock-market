@@ -50,7 +50,7 @@ class FieldMap:
     price: str = "Price"
     volume: str = "Volume"
     change_pct: str = "Change"
-    rel_volume: str = "Rel Volume"
+    rel_volume: str = "Relative Volume"
 
 
 @dataclass
@@ -73,23 +73,26 @@ class Settings:
     accel_windows: int = 4  # snapshots needed -> 3 consecutive ratios
 
     # --- RVOL (time-of-day baseline) ---
+    # Still computed and logged for context (and shown in alert messages),
+    # but not part of the score -- see scoring.py's module docstring for why.
     rvol_time_bucket_minutes: int = 5
     rvol_min_history_days: int = 10  # bootstrap threshold before trusting our own history
     rvol_lookback_days: int = 20
 
-    # --- Scoring weights (spec: acceleration weighted highest) ---
-    weight_acceleration: float = 0.6
-    weight_rvol: float = 0.25
-    weight_price: float = 0.15
+    # --- Scoring weights (acceleration weighted highest) ---
+    weight_acceleration: float = 0.8
+    weight_price: float = 0.2
+    # Discard tickers trending down before they're ever scored -- only
+    # flat-or-up price action counts as confirming the volume move.
+    min_price_change_pct: float = 0.0
     score_threshold: float = 3.0  # Phase-1: deliberately loose
 
     # --- Alerting ---
     alert_cooldown_minutes: int = 30
     dry_run: bool = False
-    twilio_account_sid: str = ""
-    twilio_auth_token: str = ""
-    twilio_from_number: str = ""
-    twilio_to_numbers: tuple[str, ...] = ()
+    pushover_api_token: str = ""
+    pushover_user_key: str = ""
+    pushover_priority: int = 0  # -2..2; 1 = high priority (bypasses quiet hours), 2 = emergency (needs ack)
 
     # --- Storage ---
     data_dir: Path = Path("data")
@@ -115,9 +118,6 @@ def load_settings(env_path: str | Path | None = None) -> Settings:
     else:
         export_url = env.get("FINVIZ_EXPORT_URL_DISCOVERY", env.get("FINVIZ_EXPORT_URL", ""))
 
-    to_numbers_raw = env.get("TWILIO_TO_NUMBERS", "")
-    to_numbers = tuple(n.strip() for n in to_numbers_raw.split(",") if n.strip())
-
     field_map = FieldMap(
         ticker=env.get("FINVIZ_FIELD_TICKER", FieldMap.ticker),
         price=env.get("FINVIZ_FIELD_PRICE", FieldMap.price),
@@ -141,15 +141,14 @@ def load_settings(env_path: str | Path | None = None) -> Settings:
         rvol_time_bucket_minutes=_int(env.get("RVOL_TIME_BUCKET_MINUTES"), 5),
         rvol_min_history_days=_int(env.get("RVOL_MIN_HISTORY_DAYS"), 10),
         rvol_lookback_days=_int(env.get("RVOL_LOOKBACK_DAYS"), 20),
-        weight_acceleration=_float(env.get("WEIGHT_ACCELERATION"), 0.6),
-        weight_rvol=_float(env.get("WEIGHT_RVOL"), 0.25),
-        weight_price=_float(env.get("WEIGHT_PRICE"), 0.15),
+        weight_acceleration=_float(env.get("WEIGHT_ACCELERATION"), 0.8),
+        weight_price=_float(env.get("WEIGHT_PRICE"), 0.2),
+        min_price_change_pct=_float(env.get("MIN_PRICE_CHANGE_PCT"), 0.0),
         score_threshold=_float(env.get("SCORE_THRESHOLD"), 3.0),
         alert_cooldown_minutes=_int(env.get("ALERT_COOLDOWN_MINUTES"), 30),
         dry_run=_bool(env.get("DRY_RUN"), False),
-        twilio_account_sid=env.get("TWILIO_ACCOUNT_SID", ""),
-        twilio_auth_token=env.get("TWILIO_AUTH_TOKEN", ""),
-        twilio_from_number=env.get("TWILIO_FROM_NUMBER", ""),
-        twilio_to_numbers=to_numbers,
+        pushover_api_token=env.get("PUSHOVER_API_TOKEN", ""),
+        pushover_user_key=env.get("PUSHOVER_USER_KEY", ""),
+        pushover_priority=_int(env.get("PUSHOVER_PRIORITY"), 0),
         data_dir=Path(env.get("DATA_DIR", "data")),
     )

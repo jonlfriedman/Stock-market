@@ -6,7 +6,7 @@ from premarket_scanner.config import FieldMap
 from premarket_scanner.finviz_client import FinvizError, parse_rows
 
 SAMPLE_CSV = (
-    "Ticker,Company,Price,Change,Volume,Rel Volume\n"
+    "Ticker,Company,Price,Change,Volume,Relative Volume\n"
     "AAPL,Apple Inc,225.31,2.15%,45123456,3.42\n"
     "XYZ,Small Cap Co,3.20,-1.10%,987654,1.85\n"
     "BAD,Bad Row,,,,\n"

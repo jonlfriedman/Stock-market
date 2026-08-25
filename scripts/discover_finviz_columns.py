@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """One-off helper: fetch a Finviz Elite export URL and print its CSV headers.
 
-Finviz's export column IDs aren't officially documented. Run this once
-against your real export URL (see README for how to get one) to see the
-exact header names it returns -- especially for premarket-specific columns
-like premarket price/change/volume, whose exact labels vary by Finviz's
-custom view configuration. Then set the matching FINVIZ_FIELD_* env vars
-in .env if the defaults in config.FieldMap don't match.
+Finviz's Elite API page (elite.finviz.com -> API -> Screener) now documents
+column IDs directly (the `&c=1,65,66,...` param) -- there are no separate
+premarket-specific columns; the standard Price/Change/Volume columns carry
+live premarket data during the scan window. Run this once against your real
+export URL (see README) as a final sanity check that the actual CSV header
+text matches the defaults in config.FieldMap, and set the matching
+FINVIZ_FIELD_* env vars in .env if not.
 
 Usage:
     python scripts/discover_finviz_columns.py "https://elite.finviz.com/export.ashx?..."
@@ -48,7 +49,7 @@ def main() -> None:
         print(f"  {line}")
 
     print(
-        "\nIf any of Ticker/Price/Volume/Change/Rel Volume above don't match "
+        "\nIf any of Ticker/Price/Volume/Change/Relative Volume above don't match "
         "the defaults in premarket_scanner/config.py's FieldMap, set the "
         "corresponding FINVIZ_FIELD_* env var in .env to the exact header text shown."
     )

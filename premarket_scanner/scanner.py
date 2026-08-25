@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import finviz_client
-from .alerts import TwilioAlerter
+from .alerts import PushoverAlerter
 from .buffer import RollingBuffer
 from .config import Settings, load_settings
 from .rvol import RvolCalculator, time_bucket
@@ -55,7 +55,7 @@ def poll_once(
     storage: Storage,
     buffer: RollingBuffer,
     rvol_calc: RvolCalculator,
-    alerter: TwilioAlerter,
+    alerter: PushoverAlerter,
     now: datetime,
 ) -> None:
     snapshots = finviz_client.fetch_snapshot(settings.finviz_export_url, settings.field_map, now)
@@ -102,16 +102,20 @@ def poll_once(
         row["rvol_source"] = rvol_result.source
         row["price_change_pct"] = round(price_change_pct, 4)
 
-        if not accel.sustained or rvol_result.value is None:
+        if not accel.sustained:
+            storage.append_score_log(trade_date, row)
+            continue
+
+        if price_change_pct < settings.min_price_change_pct:
+            # Downward-trending despite accelerating volume -- discard rather
+            # than score, per the "flat or up only" rule.
             storage.append_score_log(trade_date, row)
             continue
 
         score = compute_score(
             accel.score,
-            rvol_result.value,
-            abs(price_change_pct),
+            price_change_pct,
             settings.weight_acceleration,
-            settings.weight_rvol,
             settings.weight_price,
         )
         row["score"] = round(score, 4)
@@ -128,11 +132,20 @@ def poll_once(
                 snap.volume,
             )
             storage.record_alert(
-                snap.ticker, now, score, accel.score, rvol_result.value, price_change_pct, snap.volume
+                snap.ticker,
+                now,
+                score,
+                accel.score,
+                rvol_result.value,
+                price_change_pct,
+                snap.volume,
+                snap.price,
             )
             row["alerted"] = True
 
         storage.append_score_log(trade_date, row)
+
+    storage.backfill_alert_outcomes(now, settings.rvol_time_bucket_minutes)
 
 
 def run(settings: Settings, once: bool = False) -> None:
@@ -140,7 +153,7 @@ def run(settings: Settings, once: bool = False) -> None:
     storage = Storage(settings.data_dir)
     buffer = RollingBuffer(settings.buffer_window_minutes, settings.poll_interval_seconds)
     rvol_calc = RvolCalculator(storage, settings)
-    alerter = TwilioAlerter(settings, storage)
+    alerter = PushoverAlerter(settings, storage)
 
     try:
         while True:
