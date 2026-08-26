@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS effectiveness_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_effectiveness_due
     ON effectiveness_snapshots (recorded, due_time);
+
+CREATE TABLE IF NOT EXISTS baseline_averages (
+    trade_date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    baseline_avg_vol_per_min REAL NOT NULL,
+    PRIMARY KEY (trade_date, ticker)
+);
 """
 
 SCAN_LOG_HEADER = [
@@ -142,6 +149,25 @@ class Storage:
             (snapshot_time.isoformat(), price, pct_change_from_trigger, snapshot_id),
         )
         self._conn.commit()
+
+    # --- Baseline persistence (survives a mid-session process restart) ---
+    def save_baseline_averages(self, trade_date: str, averages: dict[str, float | None]) -> None:
+        rows = [(trade_date, ticker, avg) for ticker, avg in averages.items() if avg is not None and avg > 0]
+        if not rows:
+            return
+        self._conn.executemany(
+            "INSERT OR REPLACE INTO baseline_averages (trade_date, ticker, baseline_avg_vol_per_min) "
+            "VALUES (?, ?, ?)",
+            rows,
+        )
+        self._conn.commit()
+
+    def load_baseline_averages(self, trade_date: str) -> dict[str, float]:
+        cur = self._conn.execute(
+            "SELECT ticker, baseline_avg_vol_per_min FROM baseline_averages WHERE trade_date = ?",
+            (trade_date,),
+        )
+        return {ticker: avg for ticker, avg in cur.fetchall()}
 
     # --- Diagnostic log (plain CSV, one file per day) ---
     def append_scan_log(self, trade_date: str, row: dict) -> None:

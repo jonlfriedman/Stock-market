@@ -83,6 +83,13 @@ class TriggerEngine:
             result[ticker] = state.baseline_avg
         return result
 
+    def seed_baseline(self, averages: dict[str, float]) -> None:
+        """Restore previously-finalized baselines (e.g. after a process
+        restart mid-session, so trigger detection doesn't go dark for the
+        rest of the day -- the baseline window itself only happens once)."""
+        for ticker, avg in averages.items():
+            self._state(ticker).baseline_avg = avg
+
     def evaluate(self, ticker: str, timestamp: datetime, cum_volume: float) -> TriggerReading:
         state = self._state(ticker)
         delta = self._minute_delta(state, cum_volume)

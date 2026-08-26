@@ -1,7 +1,14 @@
+import tempfile
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import patch
 
+from premarket_scanner.alerts import PushoverAlerter
 from premarket_scanner.config import Settings
-from premarket_scanner.scanner import current_phase, seconds_until_next_window, within_scan_window
+from premarket_scanner.effectiveness import EffectivenessTracker
+from premarket_scanner.finviz_client import TickerSnapshot
+from premarket_scanner.scanner import ScanState, current_phase, poll_once, seconds_until_next_window, within_scan_window
+from premarket_scanner.storage import Storage
 
 
 def _settings() -> Settings:
@@ -70,3 +77,38 @@ def test_current_phase_trigger_extends_to_scan_end():
 def test_current_phase_outside():
     now = datetime(2026, 8, 21, 10, 30)
     assert current_phase(now, _settings()) == "outside"
+
+
+def test_process_restart_mid_trigger_window_restores_baseline_from_storage():
+    """Reproduces the real incident: the service gets restarted at, say,
+    7:48 AM -- after the 6:45-7:00 baseline window has already passed. A
+    brand new in-memory TriggerEngine has no baseline data of its own, but
+    a *previous* process instance already finalized and persisted one for
+    today, so it should be restored rather than trigger detection going
+    dark for the rest of the day."""
+    with tempfile.TemporaryDirectory() as tmp:
+        settings = Settings(
+            profile="watchlist",
+            watchlist_tickers=("AAPL",),
+            data_dir=Path(tmp),
+            trigger_multiplier=3.0,
+            confirmation_minutes=3,
+        )
+        storage = Storage(settings.data_dir)
+        # Simulate: an earlier process instance already finalized today's baseline.
+        storage.save_baseline_averages("2026-08-26", {"AAPL": 100.0})
+
+        alerter = PushoverAlerter(settings, storage)
+        effectiveness = EffectivenessTracker(storage, settings)
+        state = ScanState()  # fresh, as if the process just started
+
+        now = datetime(2026, 8, 26, 7, 48)  # well past baseline_start_time
+        with patch(
+            "premarket_scanner.scanner.finviz_client.fetch_quotes",
+            return_value=[TickerSnapshot("AAPL", 11.0, 5000, 0.5, now)],
+        ):
+            poll_once(settings, storage, state, alerter, effectiveness, now)
+
+        assert state.baseline_finalized is True
+        assert state.engine.evaluate("AAPL", now, 5000).baseline_avg == 100.0
+        storage.close()

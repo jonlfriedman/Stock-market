@@ -118,9 +118,15 @@ def poll_once(
     prices = {snap.ticker: snap.price for snap in snapshots}
 
     if phase == "trigger" and not state.baseline_finalized:
-        state.engine.finalize_baseline()
+        persisted = storage.load_baseline_averages(trade_date)
+        if persisted:
+            state.engine.seed_baseline(persisted)
+            log.info("Restored baseline for %d tickers from storage (process (re)started mid-session)", len(persisted))
+        else:
+            fresh = state.engine.finalize_baseline()
+            storage.save_baseline_averages(trade_date, fresh)
+            log.info("Baseline finalized for %d tickers", len(state.tickers))
         state.baseline_finalized = True
-        log.info("Baseline finalized for %d tickers", len(state.tickers))
 
     for snap in snapshots:
         if phase == "baseline":

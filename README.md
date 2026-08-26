@@ -130,6 +130,14 @@ The service only actively polls within `UNIVERSE_FETCH_TIME`-`SCAN_END_TIME`
 (weekdays); outside that window it sleeps until the next window, so it's
 safe to leave running continuously.
 
+A restart mid-session (crash, redeploy, manual `systemctl restart`) is
+safe at any time of day: each ticker's baseline average is persisted to
+`scanner.db` the moment it's first finalized, and a fresh process reloads
+it instead of recomputing from an empty in-memory buffer -- so a restart
+after 7:00 AM doesn't leave trigger detection dark for the rest of the
+day. Only a restart *during* the 6:45-7:00 baseline window itself loses
+whatever partial minutes that instance had collected.
+
 ## Diagnostic-first rollout (required before live alerting)
 
 `LIVE_ALERTING_ENABLED` defaults to `false`. Run the full pipeline in this

@@ -18,6 +18,21 @@ def test_baseline_average_from_deltas():
     assert avgs["AAPL"] == 100.0
 
 
+def test_seed_baseline_restores_avg_for_fresh_engine():
+    # Simulates a process restart mid-trigger-window: a brand new engine
+    # with no baseline_deltas of its own gets seeded from persisted values.
+    engine = TriggerEngine(multiplier=3.0, confirmation_minutes=3)
+    engine.seed_baseline({"AAPL": 100.0})
+
+    base = datetime(2026, 8, 21, 7, 30)
+    r0 = engine.evaluate("AAPL", base, 5000)  # first reading, establishes last_cum_volume
+    assert r0.trigger1_fired is False
+    assert r0.baseline_avg == 100.0
+
+    r1 = engine.evaluate("AAPL", _t(base, 1), 5500)  # +500 > 100*3=300 breakout
+    assert r1.trigger1_fired is True
+
+
 def test_no_baseline_data_means_no_trigger():
     engine = TriggerEngine(multiplier=3.0, confirmation_minutes=3)
     engine.finalize_baseline()  # ticker never seen
