@@ -4,8 +4,8 @@ Detects stocks whose premarket volume breaks out and *keeps building*
 right around the 7:00 AM broker-unlock time, distinguishing real
 ticker-specific moves from the market-wide volume step-up that happens
 when retail platforms open trading access. Runs a strict two-phase
-baseline/breakout/confirmation check every minute and texts a minimal SMS
-via Twilio when a move confirms.
+baseline/breakout/confirmation check every minute and pushes a minimal
+alert via Pushover when a move confirms.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Phase 2 -- trigger window (07:00 onward): poll every 1 min
   Trigger 2 (confirmation): next 3 minutes stay elevated OR keep increasing
         |
         v
-Confirmed --> Twilio SMS (ticker + price only) + logged to SQLite
+Confirmed --> Pushover alert (ticker + price only) + logged to SQLite
 Every poll (confirmed or not) --> data/logs/scan_YYYY-MM-DD.csv
         |
         v
@@ -80,13 +80,15 @@ defaults in `config.FieldMap`:
 If any of Ticker/Price/Volume/Change differ, set the matching
 `FINVIZ_FIELD_*` var in `.env`.
 
-### 2. Twilio
+### 2. Pushover
 
-Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, and
-`TWILIO_TO_NUMBERS` (comma-separated for multiple recipients) in `.env`.
-Leave `LIVE_ALERTING_ENABLED=false` until the diagnostic week is done --
-see below. This is separate from `DRY_RUN`, which is just a manual
-override for one-off test runs.
+Set `PUSHOVER_API_TOKEN` (a Pushover Application token) and
+`PUSHOVER_USER_KEY` (your Pushover User Key) in `.env` -- both from
+pushover.net. Chosen over Twilio SMS because it's a plain HTTPS POST with
+no carrier A2P 10DLC registration step, which is unnecessary friction for
+a single-user personal alert feed. Leave `LIVE_ALERTING_ENABLED=false`
+until the diagnostic week is done -- see below. This is separate from
+`DRY_RUN`, which is just a manual override for one-off test runs.
 
 ### 3. Run
 
@@ -104,7 +106,7 @@ override for one-off test runs.
 .venv/bin/python -m pytest tests/ -v
 ```
 
-All tests run against synthetic data -- no Finviz or Twilio credentials
+All tests run against synthetic data -- no Finviz or Pushover credentials
 needed.
 
 ## Deployment (small droplet)
@@ -158,11 +160,11 @@ tuned and `LIVE_ALERTING_ENABLED` flipped to `true`.
 Kept deliberately minimal per the build spec: `TICKER $PRICE`, nothing
 else -- no scores, ratios, or extra metrics. Price % change is used only
 as a secondary confirmation signal internally (visible in the CSV log),
-never in the SMS text.
+never in the push message.
 
 ## Effectiveness tracking
 
-Independent of what the SMS contains: for every confirmed trigger, price
+Independent of what the alert contains: for every confirmed trigger, price
 is snapshotted every `EFFECTIVENESS_SNAPSHOT_MINUTES` (default 15) after
 the trigger, continuing until `SCAN_END_TIME` (default 10:00 AM --
 deliberately past the 9:30 AM open, since some moves only materialize
@@ -180,7 +182,7 @@ decision.
   breakout. Confirmation passes if volume stays at/above the breakout
   level for the whole window, OR keeps (non-strictly) increasing across
   it -- either is enough; both together aren't required.
-- `ALERT_COOLDOWN_MINUTES`: minimum gap between SMS for the same ticker
+- `ALERT_COOLDOWN_MINUTES`: minimum gap between pushes for the same ticker
   while a move keeps reconfirming.
 
 ## Profiles

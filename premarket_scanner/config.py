@@ -87,10 +87,9 @@ class Settings:
     # false so a fresh checkout never sends SMS by accident.
     live_alerting_enabled: bool = False
     dry_run: bool = False
-    twilio_account_sid: str = ""
-    twilio_auth_token: str = ""
-    twilio_from_number: str = ""
-    twilio_to_numbers: tuple[str, ...] = ()
+    pushover_api_token: str = ""
+    pushover_user_key: str = ""
+    pushover_priority: int = 0
 
     # --- Effectiveness tracking ---
     effectiveness_snapshot_minutes: int = 15
@@ -121,9 +120,6 @@ def load_settings(env_path: str | Path | None = None) -> Settings:
     watchlist_raw = env.get("FINVIZ_WATCHLIST_TICKERS", "")
     watchlist_tickers = tuple(t.strip().upper() for t in watchlist_raw.split(",") if t.strip())
 
-    to_numbers_raw = env.get("TWILIO_TO_NUMBERS", "")
-    to_numbers = tuple(n.strip() for n in to_numbers_raw.split(",") if n.strip())
-
     field_map = FieldMap(
         ticker=env.get("FINVIZ_FIELD_TICKER", FieldMap.ticker),
         price=env.get("FINVIZ_FIELD_PRICE", FieldMap.price),
@@ -151,10 +147,9 @@ def load_settings(env_path: str | Path | None = None) -> Settings:
         alert_cooldown_minutes=_int(env.get("ALERT_COOLDOWN_MINUTES"), 30),
         live_alerting_enabled=_bool(env.get("LIVE_ALERTING_ENABLED"), False),
         dry_run=_bool(env.get("DRY_RUN"), False),
-        twilio_account_sid=env.get("TWILIO_ACCOUNT_SID", ""),
-        twilio_auth_token=env.get("TWILIO_AUTH_TOKEN", ""),
-        twilio_from_number=env.get("TWILIO_FROM_NUMBER", ""),
-        twilio_to_numbers=to_numbers,
+        pushover_api_token=env.get("PUSHOVER_API_TOKEN", ""),
+        pushover_user_key=env.get("PUSHOVER_USER_KEY", ""),
+        pushover_priority=_int(env.get("PUSHOVER_PRIORITY"), 0),
         effectiveness_snapshot_minutes=_int(env.get("EFFECTIVENESS_SNAPSHOT_MINUTES"), 15),
         data_dir=Path(env.get("DATA_DIR", "data")),
     )

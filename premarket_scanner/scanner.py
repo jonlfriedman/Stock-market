@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import finviz_client, universe
-from .alerts import TwilioAlerter
+from .alerts import PushoverAlerter
 from .config import Settings, load_settings
 from .effectiveness import EffectivenessTracker
 from .storage import Storage
@@ -88,7 +88,7 @@ def poll_once(
     settings: Settings,
     storage: Storage,
     state: ScanState,
-    alerter: TwilioAlerter,
+    alerter: PushoverAlerter,
     effectiveness: EffectivenessTracker,
     now: datetime,
 ) -> None:
@@ -185,14 +185,14 @@ def poll_once(
 def run(settings: Settings, once: bool = False) -> None:
     tz = ZoneInfo(settings.timezone)
     storage = Storage(settings.data_dir)
-    alerter = TwilioAlerter(settings, storage)
+    alerter = PushoverAlerter(settings, storage)
     effectiveness = EffectivenessTracker(storage, settings)
     state = ScanState()
 
     if not settings.live_alerting_enabled:
         log.warning(
             "live_alerting_enabled=false -- running in diagnostic/log-only mode, "
-            "no SMS will be sent regardless of Twilio config."
+            "no push alerts will be sent regardless of Pushover config."
         )
 
     try:
