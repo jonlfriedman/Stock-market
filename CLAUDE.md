@@ -45,10 +45,10 @@ Known as of 2026-08-30 (confirmed by SSHing into the droplet directly):
   rows with `minute_volume=0.0` in the sample data. Fixed to require
   strict `>` (genuine increase) on 2026-08-30, pushed to
   `claude/claude-code-env-ko2jgj` at commit `425874c`, all 47 tests pass
-  including two new regression tests for this exact case. **Not yet
-  pulled/restarted on the droplet as of this writing** — check
-  `git log -1` on the droplet against `425874c` before trusting any new
-  data collected after 2026-08-30.
+  including two new regression tests for this exact case. **Deployed**:
+  pulled and restarted on the droplet 2026-08-30 08:27 EDT, tests passed
+  there too. Data collected from 2026-08-30 onward reflects the fix; the
+  Aug 25-28 data predates it and still has the flatline-at-zero noise.
 - The `.env` on the droplet (Finviz/Pushover credentials) has not been
   inspected and shouldn't be pasted into chat — treat as a black box,
   just confirm it exists if debugging.
