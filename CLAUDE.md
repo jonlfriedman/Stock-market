@@ -27,12 +27,28 @@ Known as of 2026-08-30 (confirmed by SSHing into the droplet directly):
   `journalctl -u premarket-scanner` around that time before trusting
   data spanning the restart).
 - Real data exists at `/opt/premarket-scanner/data/`: `scanner.db`
-  (SQLite, alert history) and `data/logs/scan_2026-08-25.csv` through
-  `scan_2026-08-28.csv` (Tue–Fri, a few MB each). This is the first
-  confirmed evidence the scanner actually ran and logged premarket data.
-  Contents (alert count, whether triggers fired, data quality) have not
-  yet been analyzed — do that before treating a week of data as "in
-  hand."
+  (SQLite) and `data/logs/scan_2026-08-2{5,6,7,8}.csv`. Confirmed via
+  `LIVE_ALERTING_ENABLED=false` in `.env` that **zero Pushover pushes
+  were actually sent** — the 824 rows in `confirmed_triggers` are all
+  `alerted=0`, i.e. silent Phase-1 diagnostic logging as intended, not a
+  flood to the user's phone. Aug 25 has almost no data (15KB CSV vs ~3MB
+  for the other three days) — that day's run looks incomplete/short and
+  wasn't dug into further. Only 49 of 203 tickers ever triggered; a
+  handful (CRE, WEN, RIG, SNAP, ORC) re-triggered 25-54 times over the
+  3 real days.
+- **Found and fixed a real bug** in `premarket_scanner/trigger.py`'s
+  `check_confirmation()`: the "keeps increasing" confirmation path used
+  `>=` (non-decreasing), so a breakout minute followed by volume dying
+  completely to zero (0, 0, 0) counted as "confirmed" — flat is
+  non-decreasing but is the opposite of the "still building" signal the
+  tool is meant to catch. This explained several `confirmed_triggers`
+  rows with `minute_volume=0.0` in the sample data. Fixed to require
+  strict `>` (genuine increase) on 2026-08-30, pushed to
+  `claude/claude-code-env-ko2jgj` at commit `425874c`, all 47 tests pass
+  including two new regression tests for this exact case. **Not yet
+  pulled/restarted on the droplet as of this writing** — check
+  `git log -1` on the droplet against `425874c` before trusting any new
+  data collected after 2026-08-30.
 - The `.env` on the droplet (Finviz/Pushover credentials) has not been
   inspected and shouldn't be pasted into chat — treat as a black box,
   just confirm it exists if debugging.
