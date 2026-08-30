@@ -107,3 +107,28 @@ def test_check_confirmation_increasing_but_below_breakout():
 
 def test_check_confirmation_neither():
     assert check_confirmation([300, 50, 40], breakout_level=200) is False
+
+
+def test_check_confirmation_rejects_flatline_at_zero():
+    # Regression: a breakout minute followed by volume completely dying is
+    # non-decreasing (0 >= 0) but is the opposite of "still building" --
+    # seen in production as spurious confirmed_triggers with minute_volume=0.
+    assert check_confirmation([0, 0, 0], breakout_level=200) is False
+
+
+def test_trigger2_rejects_flatline_at_zero_after_breakout():
+    engine = TriggerEngine(multiplier=3.0, confirmation_minutes=3)
+    engine.record_baseline_reading("AAPL", 1000)
+    engine.record_baseline_reading("AAPL", 1100)  # baseline avg = 100
+    engine.finalize_baseline()
+
+    base = datetime(2026, 8, 21, 7, 0)
+    engine.evaluate("AAPL", base, 1100)
+    engine.evaluate("AAPL", _t(base, 1), 1500)  # +400 breakout
+
+    # volume dies completely and stays flat at zero
+    engine.evaluate("AAPL", _t(base, 2), 1500)  # +0
+    engine.evaluate("AAPL", _t(base, 3), 1500)  # +0
+    r4 = engine.evaluate("AAPL", _t(base, 4), 1500)  # +0
+    assert r4.trigger2_confirmed is False
+    assert r4.watching is False

@@ -26,7 +26,10 @@ def check_confirmation(watch_deltas: list[float], breakout_level: float) -> bool
     if not watch_deltas:
         return False
     stays_elevated = all(d >= breakout_level for d in watch_deltas)
-    keeps_increasing = all(watch_deltas[i] >= watch_deltas[i - 1] for i in range(1, len(watch_deltas)))
+    # Strictly increasing, not just non-decreasing: a flat run (including a
+    # dead ticker sitting at 0 volume) is non-decreasing but isn't "still
+    # building" -- it's the initial breakout minute fading to nothing.
+    keeps_increasing = all(watch_deltas[i] > watch_deltas[i - 1] for i in range(1, len(watch_deltas)))
     return stays_elevated or keeps_increasing
 
 
