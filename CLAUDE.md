@@ -11,21 +11,31 @@ particular branch's code without checking — ask the user or have them run
 commands on it, since **sandboxed Claude Code sessions generally cannot
 reach arbitrary IPs over SSH** (outbound is HTTPS-only through a proxy).
 
-Known as of 2026-08-30:
-- Droplet IP: `157.230.1.250`
-- Expected deploy path per `deploy/premarket-scanner.service`:
-  `/opt/premarket-scanner`, running as systemd unit `premarket-scanner`,
-  under a `scanner` user.
-- Which branch/commit is actually deployed there is **unconfirmed** — the
-  repo has multiple divergent, unmerged branches (see below), and nobody
-  has recorded which one (if any) was pushed to the droplet.
-- Whether the service has actually been enabled/running, and for how
-  long, is **unconfirmed** — needs to be checked on the droplet itself.
-- The scanner's `data/` directory (logs, SQLite alert history, score
-  CSVs) is gitignored by design (keeps credentials/data out of git). That
-  means any collected data exists **only on the droplet's disk**, at
-  `/opt/premarket-scanner/data` if deployed per the README — it will
-  never show up by looking at this git repo alone.
+Known as of 2026-08-30 (confirmed by SSHing into the droplet directly):
+- Droplet IP: `157.230.1.250`, Ubuntu 24.04, deployed at
+  `/opt/premarket-scanner` per the README, systemd unit
+  `premarket-scanner` (enabled, running as user `scanner`).
+- **Deployed code is branch `claude/claude-code-env-ko2jgj`, commit
+  `e817265`** ("Add one-off script to recover a lost baseline from the
+  CSV log") — this is the from-scratch two-phase rebuild line, **not**
+  PR #1's fixes (Finviz RVOL column bug fix, downward-price gate,
+  price-outcome tracking). Those PR #1 fixes are not on the droplet.
+- Service has been `active (running)` since **Thu 2026-08-27 06:53:46
+  EDT**. That restart timestamp lines up with the last deployed commit
+  being a baseline-recovery script — something broke around Aug 27 and
+  was patched; the root cause hasn't been dug into yet (check
+  `journalctl -u premarket-scanner` around that time before trusting
+  data spanning the restart).
+- Real data exists at `/opt/premarket-scanner/data/`: `scanner.db`
+  (SQLite, alert history) and `data/logs/scan_2026-08-25.csv` through
+  `scan_2026-08-28.csv` (Tue–Fri, a few MB each). This is the first
+  confirmed evidence the scanner actually ran and logged premarket data.
+  Contents (alert count, whether triggers fired, data quality) have not
+  yet been analyzed — do that before treating a week of data as "in
+  hand."
+- The `.env` on the droplet (Finviz/Pushover credentials) has not been
+  inspected and shouldn't be pasted into chat — treat as a black box,
+  just confirm it exists if debugging.
 
 When asked "is the scanner running" / "did it collect data" / "where are
 we with the scanner": do not answer from git history alone. Have the user
